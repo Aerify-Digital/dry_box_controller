@@ -41,7 +41,7 @@ void gpio_callback(uint gpio, uint32_t events)
         return;
     }
     last_button_press = now;
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
     switch (gpio)
     {
     case 14:
@@ -50,8 +50,6 @@ void gpio_callback(uint gpio, uint32_t events)
     default:
         break;
     }
-
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 void button_task(void *pvParameters)
@@ -226,7 +224,7 @@ void button_task(void *pvParameters)
             }
             xQueueSend(lcdQueue, (void *)true, 0);
         }
-        vTaskDelay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -241,6 +239,7 @@ void led_task(void *pvParameters)
     bool rcv_val3;
 
     Message_t msg;
+    msg.level = LOG_DEBUG;
     snprintf(msg.body, 128, "LED Task Started\n");
     xQueueSend(usbQueue, (void *)&msg, 10);
     while (1)
@@ -251,20 +250,40 @@ void led_task(void *pvParameters)
         gpio_put(LED_1_PIN, rcv_val1);
         gpio_put(LED_2_PIN, rcv_val2);
         gpio_put(LED_3_PIN, rcv_val3);
-        vTaskDelay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
 void usb_task(void *pvParameters)
 {
 
-    Serial.printf("USB Task Started\n");
+    DEBUG_PRINTLN("USB Task Started");
     Message_t rcv_msg;
     while (1)
     {
         xQueueReceive(usbQueue, (void *)&rcv_msg, portMAX_DELAY);
-        Serial.printf("%s", rcv_msg.body);
-        vTaskDelay(1);
+
+        switch (rcv_msg.level)
+        {
+        case LOG_NONE:
+            break;
+        case LOG_DEBUG:
+            DEBUG_PRINTF("%s", rcv_msg.body);
+            break;
+        case LOG_INFO:
+            Serial.printf("%s", rcv_msg.body);
+            break;
+        case LOG_WARN:
+            Serial.printf("%s", rcv_msg.body);
+            break;
+        case LOG_ERROR:
+            Serial.printf("%s", rcv_msg.body);
+            break;
+        default:
+            break;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -272,11 +291,17 @@ void lcd_task(void *pvParameters)
 {
 
     Message_t msg;
+    msg.level = LOG_DEBUG;
     snprintf(msg.body, 128, "LCD Task Started\n");
     xQueueSend(usbQueue, (void *)&msg, 10);
     lcd_init();
     bool update = false;
-    xQueueSend(lcdQueue, (void *)true, 10);
+    if (xQueueSend(lcdQueue, (void *)true, 10) != pdPASS)
+    {
+        msg.level = LOG_ERROR;
+        snprintf(msg.body, 128, "LCD Task: Failed to send initial update message\n");
+        xQueueSend(usbQueue, (void *)&msg, 10);
+    }
     while (1)
     {
         xQueueReceive(lcdQueue, (void *)&update, portMAX_DELAY);
@@ -329,35 +354,42 @@ void lcd_task(void *pvParameters)
         }
         else
         {
+            msg.level = LOG_ERROR;
             snprintf(msg.body, 128, "LCD Task: Failed to obtain I2C mutex\n");
             xQueueSend(usbQueue, (void *)&msg, 10);
         }
-        vTaskDelay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
 void obt_task(void *pvParameters)
 {
     Message_t msg;
+    msg.level = LOG_DEBUG;
     snprintf(msg.body, 128, "OBT Task Started\n");
     xQueueSend(usbQueue, (void *)&msg, 10);
+    // LM75 sensor = LM75(LM75_BASE_ADDRESS);
     while (1)
     {
         if (xSemaphoreTake(i2c_default_mutex, 1000) == pdTRUE)
         {
+
             uint16_t t;
             uint8_t buf[2];
             reg_read(i2c_default, LM75_BASE_ADDRESS, LM75_REGISTER_TEMP, buf, 2);
             t = buf[0] << 8 | buf[1];
             board_temp = (float)t / 256.0f;
+            // board_temp = temp;
             xSemaphoreGive(i2c_default_mutex);
         }
         else
         {
+            msg.level = LOG_ERROR;
             snprintf(msg.body, 128, "OBT Task: Failed to obtain I2C mutex\n");
             xQueueSend(usbQueue, (void *)&msg, 10);
         }
-        vTaskDelay(1500);
+
+        vTaskDelay(pdMS_TO_TICKS(1500));
     }
 }
 
@@ -370,12 +402,14 @@ void dht_task(void *pvParameters)
     if (DHT22_Init(dht->pin) != 0)
     {
         dht_initialized = false;
+        msg.level = LOG_ERROR;
         snprintf(msg.body, 128, "DHT Sensor %d Init Failed on Pin %d\n", dht->id, dht->pin);
         xQueueSend(usbQueue, (void *)&msg, 10);
     }
     else
     {
         dht_initialized = true;
+        msg.level = LOG_DEBUG;
         snprintf(msg.body, 128, "DHT Sensor %d Initialized on Pin %d\n", dht->id, dht->pin);
         xQueueSend(usbQueue, (void *)&msg, 10);
     }
@@ -395,6 +429,7 @@ void dht_task(void *pvParameters)
             }
             else
             {
+                msg.level = LOG_ERROR;
                 snprintf(msg.body, 128, "DHT Task %d: Failed to obtain I2C mutex\n", dht->id);
                 xQueueSend(usbQueue, (void *)&msg, 10);
             }
@@ -403,11 +438,12 @@ void dht_task(void *pvParameters)
         }
         else
         {
+            msg.level = LOG_WARN;
             snprintf(msg.body, 128, "DHT Sensor %d not initialized. Removing task.\n", dht->id);
             xQueueSend(usbQueue, (void *)&msg, 10);
             break;
         }
-        vTaskDelay(1500);
+        vTaskDelay(pdMS_TO_TICKS(1500));
     }
     vTaskDelete(NULL);
 }
@@ -419,6 +455,7 @@ void encoder_task(void *pvParameters)
     pinMode(ENCODER_BUTTON_PIN, GPIO_IN);
     gpio_set_irq_enabled_with_callback(ENCODER_BUTTON_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
     Message_t msg;
+    msg.level = LOG_DEBUG;
     snprintf(msg.body, 128, "Encoder Task Started\n");
     xQueueSend(usbQueue, (void *)&msg, 10);
     while (1)
@@ -460,7 +497,7 @@ void encoder_task(void *pvParameters)
             }
             enc_a_last = enc_a;
         }
-        vTaskDelay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -472,7 +509,8 @@ void i2c_scan_task(void *pvParameters)
     bool scan = false;
 
     int count = 0;
-    snprintf(msg.body, 128, "I2C Test Loop Started\n");
+    msg.level = LOG_DEBUG;
+    snprintf(msg.body, 128, "I2C Scan Started\n");
     xQueueSend(usbQueue, (void *)&msg, 10);
     while (1)
     {
@@ -483,6 +521,7 @@ void i2c_scan_task(void *pvParameters)
         led = !led;
         if (count == 10 && !scan)
         {
+            msg.level = LOG_INFO;
             snprintf(msg.body, 128, "\nI2C Bus 0 Scan\n");
             xQueueSend(usbQueue, (void *)&msg, 10);
             snprintf(msg.body, 128, "   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n");
@@ -548,13 +587,13 @@ void i2c_scan_task(void *pvParameters)
             snprintf(msg.body, 128, "Done.\n");
             xQueueSend(usbQueue, (void *)&msg, 10);
             scan = true;
+            vTaskDelete(i2cScanTaskHandle);
         }
 
         if (count < 10)
             count++;
 
-        vTaskDelay(1000);
-        //                                                                                                                                                      lcd_clear();
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
@@ -578,10 +617,10 @@ void setup()
     pinMode(EEPROM_WP_PIN, GPIO_OUT);
 
     usbQueue = xQueueCreate(MSG_QUEUE_LEN, sizeof(Message_t));
-    lcdQueue = xQueueCreate(1, sizeof(bool));
-    led1Queue = xQueueCreate(1, sizeof(bool));
-    led2Queue = xQueueCreate(1, sizeof(bool));
-    led3Queue = xQueueCreate(1, sizeof(bool));
+    lcdQueue = xQueueCreate(4, sizeof(bool));
+    led1Queue = xQueueCreate(4, sizeof(bool));
+    led2Queue = xQueueCreate(4, sizeof(bool));
+    led3Queue = xQueueCreate(4, sizeof(bool));
 
     i2c_default_mutex = xSemaphoreCreateMutex();
 
@@ -589,14 +628,18 @@ void setup()
     dht_readings[1] = th2;
 
     xTaskCreate(usb_task, "USB Task", 256, NULL, 1, &usbTaskHandle);
-    xTaskCreate(obt_task, "OBT Task", 256, (void *)&i2c1_inst, 1, &obtTaskHandle);
+
+#ifdef I2C_SCAN
+    xTaskCreate(i2c_scan_task, "I2C Scan Task", 256, NULL, 1, &i2cScanTaskHandle);
+#else
+    xTaskCreate(lcd_task, "LCD Task", 1024, NULL, 1, &lcdTaskHandle);
+    xTaskCreate(obt_task, "OBT Task", 1024, (void *)&i2c0_inst, 1, &obtTaskHandle);
     xTaskCreate(dht_task, "DHT Task 1", 1024, (void *)&th1, 1, &dht1TaskHandle);
     xTaskCreate(dht_task, "DHT Task 2", 1024, (void *)&th2, 1, &dht2TaskHandle);
     xTaskCreate(led_task, "LED Task", 256, NULL, 1, &ledTaskHandle);
-    xTaskCreate(lcd_task, "LCD Task", 1024, NULL, 1, &lcdTaskHandle);
     xTaskCreate(encoder_task, "ENC Task", 256, NULL, 1, &encoderTaskHandle);
     xTaskCreate(button_task, "BTN Task", 256, NULL, 1, &btnTaskHandle);
-    xTaskCreate(i2c_scan_task, "I2C Scan Task", 256, NULL, 1, &i2cScanTaskHandle);
+#endif
 }
 
 void loop()

@@ -19,9 +19,19 @@
 #include "lcd.h"
 #include "lm75.h"
 
+typedef enum
+{
+    LOG_NONE = 0,
+    LOG_ERROR,
+    LOG_WARN,
+    LOG_INFO,
+    LOG_DEBUG
+} LogLevel_t;
+
 typedef struct
 {
     char body[128];
+    LogLevel_t level = LOG_NONE;
 } Message_t;
 
 static const int MSG_QUEUE_LEN = 64;
