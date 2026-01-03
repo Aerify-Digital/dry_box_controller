@@ -45,4 +45,16 @@
 #define I2C_1_SCL_PIN 19
 #endif
 
+#ifndef BUZZER_PIN
+#define BUZZER_PIN 29
+#endif
+
+#ifndef THERMISTOR_0_PIN
+#define THERMISTOR_0_PIN 26
+#endif
+
+#ifndef THERMISTOR_1_PIN
+#define THERMISTOR_1_PIN 27
+#endif
+
 #endif

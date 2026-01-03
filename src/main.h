@@ -10,6 +10,7 @@
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/irq.h"
+#include "hardware/pwm.h"
 #include "semphr.h"
 #include <vector>
 #include "debug.h"
@@ -25,6 +26,7 @@ static QueueHandle_t lcdQueue = NULL;
 static QueueHandle_t led1Queue = NULL;
 static QueueHandle_t led2Queue = NULL;
 static QueueHandle_t led3Queue = NULL;
+static QueueHandle_t buzzerQueue = NULL;
 
 static TaskHandle_t btnTaskHandle = NULL;
 static TaskHandle_t ledTaskHandle = NULL;
@@ -35,6 +37,7 @@ static TaskHandle_t dht1TaskHandle = NULL;
 static TaskHandle_t dht2TaskHandle = NULL;
 static TaskHandle_t encoderTaskHandle = NULL;
 static TaskHandle_t i2cScanTaskHandle = NULL;
+static TaskHandle_t buzzerTaskHandle = NULL;
 
 static SemaphoreHandle_t i2c_default_mutex;
 static SemaphoreHandle_t i2c1_mutex;
@@ -55,6 +58,19 @@ typedef struct
 } Message_t;
 
 static const int MSG_QUEUE_LEN = 64;
+
+typedef enum
+{
+    BUZZER_ON,
+    BUZZER_OFF,
+    BUZZER_CHIRP
+} BuzzType_t;
+
+typedef struct
+{
+    BuzzType_t type;
+    uint16_t duration_ms; // Only used for CHIRP
+} BuzzerCommand_t;
 
 const uint EEPROM_ADDRESS = 0x50;
 

@@ -266,7 +266,6 @@ void button_task(void *pvParameters)
     {
         if (button_event)
         {
-
             button_event = false;
 
             switch (menu)
@@ -556,16 +555,17 @@ void led_task(void *pvParameters)
 {
 
     pinMode(LED_1_PIN, GPIO_OUT);
+    gpio_put(LED_1_PIN, true);
     pinMode(LED_2_PIN, GPIO_OUT);
     pinMode(LED_3_PIN, GPIO_OUT);
-    bool rcv_val1;
-    bool rcv_val2;
-    bool rcv_val3;
-
+    bool rcv_val1 = true;
+    bool rcv_val2 = true;
+    bool rcv_val3 = true;
     Message_t msg;
     msg.level = LOG_DEBUG;
     snprintf(msg.body, 128, "LED Task Started\n");
     xQueueSend(usbQueue, (void *)&msg, 10);
+
     while (1)
     {
         xQueueReceive(led1Queue, &rcv_val1, portMAX_DELAY);
@@ -694,6 +694,42 @@ void lcd_task(void *pvParameters)
     }
 }
 
+void buzzer_task(void *pvParameters)
+{
+    Message_t msg;
+    msg.level = LOG_DEBUG;
+    snprintf(msg.body, 128, "Buzzer Task Started\n");
+    xQueueSend(usbQueue, (void *)&msg, 10);
+    gpio_init(BUZZER_PIN);
+    gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
+    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
+    BuzzerCommand_t cmd;
+    while (1)
+    {
+        if (xQueueReceive(buzzerQueue, &cmd, portMAX_DELAY) == pdPASS)
+        {
+            switch (cmd.type)
+            {
+            case BUZZER_ON:
+                pwm_set_gpio_level(BUZZER_PIN, (uint16_t)(((65535 / 2) - 1) * volume / 100));
+                pwm_set_enabled(slice_num, true);
+                break;
+            case BUZZER_OFF:
+                pwm_set_gpio_level(BUZZER_PIN, 0);
+                pwm_set_enabled(slice_num, false);
+                break;
+            case BUZZER_CHIRP:
+                pwm_set_gpio_level(BUZZER_PIN, (uint16_t)(((65535 / 2) - 1) * volume / 100));
+                pwm_set_enabled(slice_num, true);
+                vTaskDelay(pdMS_TO_TICKS(cmd.duration_ms));
+                pwm_set_gpio_level(BUZZER_PIN, 0);
+                pwm_set_enabled(slice_num, false);
+                break;
+            }
+        }
+    }
+}
+
 void obt_task(void *pvParameters)
 {
     Message_t msg;
@@ -786,6 +822,7 @@ void encoder_task(void *pvParameters)
     pinMode(ENCODER_BUTTON_PIN, GPIO_IN);
     gpio_set_irq_enabled_with_callback(ENCODER_BUTTON_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
     Message_t msg;
+    BuzzerCommand_t cmd;
     msg.level = LOG_DEBUG;
     snprintf(msg.body, 128, "Encoder Task Started\n");
     xQueueSend(usbQueue, (void *)&msg, 10);
@@ -806,6 +843,8 @@ void encoder_task(void *pvParameters)
                         {
                             menu_item--;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                         }
                     }
                 }
@@ -818,6 +857,8 @@ void encoder_task(void *pvParameters)
                         {
                             menu_item++;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                         }
                     }
                 }
@@ -848,36 +889,50 @@ void encoder_task(void *pvParameters)
                             else
                                 volume = 0;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case TMIN_MENU:
                             if (tmin > 0)
                                 tmin -= 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case TMAX_MENU:
                             if (tmax > 0)
                                 tmax -= 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case TTARGET_MENU:
                             if (ttarget > 0)
                                 ttarget -= 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case HMIN_MENU:
                             if (hmin > 0)
                                 hmin -= 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case HMAX_MENU:
                             if (hmax > 0)
                                 hmax -= 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case HTARGET_MENU:
                             if (htarget > 0)
                                 htarget -= 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         default:
                             break;
@@ -894,36 +949,50 @@ void encoder_task(void *pvParameters)
                             else
                                 volume = 100;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case TMIN_MENU:
                             if (tmin < 100)
                                 tmin += 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case TMAX_MENU:
                             if (tmax < 100)
                                 tmax += 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case TTARGET_MENU:
                             if (ttarget < 100)
                                 ttarget += 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case HMIN_MENU:
                             if (hmin < 100)
                                 hmin += 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case HMAX_MENU:
                             if (hmax < 100)
                                 hmax += 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         case HTARGET_MENU:
                             if (htarget < 100)
                                 htarget += 1;
                             xQueueSend(lcdQueue, (void *)true, 0);
+                            cmd = {BUZZER_CHIRP, 40};
+                            xQueueSend(buzzerQueue, &cmd, 0);
                             break;
                         default:
                             break;
@@ -1038,7 +1107,6 @@ void setup()
     Serial.begin(115200);
     sleep_ms(3000);
     Serial.println("Dry Box Controller Starting...");
-
     i2c_init(i2c_default, 100 * 1000);
     gpio_set_function(I2C_0_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(I2C_0_SCL_PIN, GPIO_FUNC_I2C);
@@ -1052,6 +1120,7 @@ void setup()
     led1Queue = xQueueCreate(4, sizeof(bool));
     led2Queue = xQueueCreate(4, sizeof(bool));
     led3Queue = xQueueCreate(4, sizeof(bool));
+    buzzerQueue = xQueueCreate(4, sizeof(BuzzerCommand_t));
 
     i2c_default_mutex = xSemaphoreCreateMutex();
     i2c1_mutex = xSemaphoreCreateMutex();
@@ -1061,6 +1130,7 @@ void setup()
 
     xTaskCreate(usb_task, "USB Task", 1024, NULL, 1, &usbTaskHandle);
     xTaskCreate(led_task, "LED Task", 1024, NULL, 1, &ledTaskHandle);
+    xTaskCreate(buzzer_task, "BUZ Task", 1024, NULL, 1, &buzzerTaskHandle);
     xTaskCreate(encoder_task, "ENC Task", 1024, NULL, 1, &encoderTaskHandle);
     xTaskCreate(button_task, "BTN Task", 1024, NULL, 1, &btnTaskHandle);
 #ifdef I2C_SCAN
@@ -1070,7 +1140,6 @@ void setup()
     xTaskCreate(obt_task, "OBT Task", 1024, (void *)&i2c0_inst, 1, &obtTaskHandle);
     xTaskCreate(dht_task, "DHT Task 1", 1024, (void *)&th1, 1, &dht1TaskHandle);
     xTaskCreate(dht_task, "DHT Task 2", 1024, (void *)&th2, 1, &dht2TaskHandle);
-
 #endif
 }
 
