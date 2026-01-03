@@ -725,6 +725,15 @@ void buzzer_task(void *pvParameters)
                 pwm_set_gpio_level(BUZZER_PIN, 0);
                 pwm_set_enabled(slice_num, false);
                 break;
+            case BUZZER_ALARM:
+                pwm_set_gpio_level(BUZZER_PIN, (uint16_t)(((65535 / 2) - 1)));
+                pwm_set_enabled(slice_num, true);
+                break;
+            default:
+                msg.level = LOG_ERROR;
+                snprintf(msg.body, 128, "Buzzer Task: Unknown command type %d\n", cmd.type);
+                xQueueSend(usbQueue, (void *)&msg, 10);
+                break;
             }
         }
     }
