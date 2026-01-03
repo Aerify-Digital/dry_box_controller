@@ -1060,7 +1060,9 @@ void setup()
     dht_readings[1] = th2;
 
     xTaskCreate(usb_task, "USB Task", 1024, NULL, 1, &usbTaskHandle);
-
+    xTaskCreate(led_task, "LED Task", 1024, NULL, 1, &ledTaskHandle);
+    xTaskCreate(encoder_task, "ENC Task", 1024, NULL, 1, &encoderTaskHandle);
+    xTaskCreate(button_task, "BTN Task", 1024, NULL, 1, &btnTaskHandle);
 #ifdef I2C_SCAN
     xTaskCreate(i2c_scan_task, "I2C Scan Task", 1024, NULL, 1, &i2cScanTaskHandle);
 #else
@@ -1068,9 +1070,6 @@ void setup()
     xTaskCreate(obt_task, "OBT Task", 1024, (void *)&i2c0_inst, 1, &obtTaskHandle);
     xTaskCreate(dht_task, "DHT Task 1", 1024, (void *)&th1, 1, &dht1TaskHandle);
     xTaskCreate(dht_task, "DHT Task 2", 1024, (void *)&th2, 1, &dht2TaskHandle);
-    xTaskCreate(led_task, "LED Task", 1024, NULL, 1, &ledTaskHandle);
-    xTaskCreate(encoder_task, "ENC Task", 1024, NULL, 1, &encoderTaskHandle);
-    xTaskCreate(button_task, "BTN Task", 1024, NULL, 1, &btnTaskHandle);
 
 #endif
 }
