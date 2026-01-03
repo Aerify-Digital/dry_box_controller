@@ -63,7 +63,8 @@ typedef enum
 {
     BUZZER_ON,
     BUZZER_OFF,
-    BUZZER_CHIRP
+    BUZZER_CHIRP,
+    BUZZER_ALARM
 } BuzzType_t;
 
 typedef struct
