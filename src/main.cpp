@@ -1,23 +1,5 @@
 #include "main.h"
 
-static QueueHandle_t usbQueue = NULL;
-static QueueHandle_t lcdQueue = NULL;
-static QueueHandle_t led1Queue = NULL;
-static QueueHandle_t led2Queue = NULL;
-static QueueHandle_t led3Queue = NULL;
-
-static TaskHandle_t btnTaskHandle = NULL;
-static TaskHandle_t ledTaskHandle = NULL;
-static TaskHandle_t usbTaskHandle = NULL;
-static TaskHandle_t lcdTaskHandle = NULL;
-static TaskHandle_t obtTaskHandle = NULL;
-static TaskHandle_t dht1TaskHandle = NULL;
-static TaskHandle_t dht2TaskHandle = NULL;
-static TaskHandle_t encoderTaskHandle = NULL;
-static TaskHandle_t i2cScanTaskHandle = NULL;
-
-static SemaphoreHandle_t i2c_default_mutex;
-
 bool adjusting_setting = false;
 
 int enc_a = 1;
@@ -86,6 +68,174 @@ std::string replace_placeholders(const char *src)
     return s;
 }
 
+void save_settings()
+{
+    eeprom_write_byte(0, volume);
+    eeprom_write_byte(1, tmin);
+    eeprom_write_byte(2, tmax);
+    eeprom_write_byte(3, ttarget);
+    eeprom_write_byte(4, unit);
+    eeprom_write_byte(5, hmin);
+    eeprom_write_byte(6, hmax);
+    eeprom_write_byte(7, htarget);
+}
+
+void process_result(byte &result, const char *setting_name)
+{
+    Message_t msg;
+    switch (result)
+    {
+    case EEPROM_ADDR_ERR:
+        snprintf(msg.body, sizeof(msg.body), "EEPROM address error when saving %s setting\n", setting_name);
+        msg.level = LOG_ERROR;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+        break;
+    case 1:
+        snprintf(msg.body, sizeof(msg.body), "Data too long error when saving %s setting\n", setting_name);
+        msg.level = LOG_ERROR;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+        break;
+    case 2:
+        snprintf(msg.body, sizeof(msg.body), "NACK on transmit of address error when saving %s setting\n", setting_name);
+        msg.level = LOG_ERROR;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+        break;
+    case 3:
+        snprintf(msg.body, sizeof(msg.body), "NACK on transmit of data error when saving %s setting\n", setting_name);
+        msg.level = LOG_ERROR;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+        break;
+    case 4:
+        snprintf(msg.body, sizeof(msg.body), "Other error when saving %s setting\n", setting_name);
+        msg.level = LOG_ERROR;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+        break;
+    case 5:
+        snprintf(msg.body, sizeof(msg.body), "Timeout error when saving %s setting\n", setting_name);
+        msg.level = LOG_ERROR;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+        break;
+    case 0:
+        break;
+    default:
+        snprintf(msg.body, sizeof(msg.body), "Unknown I2C error (%d) when saving %s setting\n", result, setting_name);
+        msg.level = LOG_ERROR;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+        break;
+    }
+    result = 0;
+}
+
+void load_settings()
+{
+    Message_t msg;
+    byte result = 0;
+    volume = eeprom_read_byte(0);
+    if (volume > 100)
+    {
+        volume = 100;
+        result = save_setting(0, volume);
+        process_result(result, "volume");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded volume setting: %d%%\n", volume);
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+    tmin = eeprom_read_byte(1);
+    if (tmin > 100)
+    {
+        tmin = 100;
+        result = save_setting(1, tmin);
+        process_result(result, "tmin");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded tmin setting: %dC\n", tmin);
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+    tmax = eeprom_read_byte(2);
+    if (tmax > 100)
+    {
+        tmax = 100;
+        result = save_setting(2, tmax);
+        process_result(result, "tmax");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded tmax setting: %dC\n", tmax);
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+    ttarget = eeprom_read_byte(3);
+    if (ttarget > 100)
+    {
+        ttarget = 100;
+        result = save_setting(3, ttarget);
+        process_result(result, "ttarget");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded ttarget setting: %dC\n", ttarget);
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+    unit = eeprom_read_byte(4);
+    if (unit > 1)
+    {
+        unit = 0;
+        result = save_setting(4, unit);
+        process_result(result, "unit");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded unit setting: %s\n", unit == 0 ? "Celsius" : "Fahrenheit");
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+    hmin = eeprom_read_byte(5);
+    if (hmin > 100)
+    {
+        hmin = 100;
+        result = save_setting(5, hmin);
+        process_result(result, "hmin");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded hmin setting: %d%%\n", hmin);
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+    hmax = eeprom_read_byte(6);
+    if (hmax > 100)
+    {
+        hmax = 100;
+        result = save_setting(6, hmax);
+        process_result(result, "hmax");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded hmax setting: %d%%\n", hmax);
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+    htarget = eeprom_read_byte(7);
+    if (htarget > 100)
+    {
+        htarget = 100;
+        result = save_setting(7, htarget);
+        process_result(result, "htarget");
+    }
+    else
+    {
+        snprintf(msg.body, sizeof(msg.body), "Loaded htarget setting: %d%%\n", htarget);
+        msg.level = LOG_INFO;
+        xQueueSend(usbQueue, (void *)&msg, 0);
+    }
+}
+
 void gpio_callback(uint gpio, uint32_t events)
 {
     uint32_t now = to_ms_since_boot(get_absolute_time());
@@ -107,10 +257,16 @@ void gpio_callback(uint gpio, uint32_t events)
 
 void button_task(void *pvParameters)
 {
+    TwoWire myWire = TwoWire(i2c1, I2C_1_SDA_PIN, I2C_1_SCL_PIN);
+    myWire.begin();
+    eeprom.begin(eeprom.twiClock100kHz, &myWire);
+    digitalWrite(EEPROM_WP_PIN, LOW);
+    load_settings();
     while (1)
     {
         if (button_event)
         {
+
             button_event = false;
 
             switch (menu)
@@ -227,10 +383,10 @@ void button_task(void *pvParameters)
                     adjusting_setting = !adjusting_setting;
                     if (!adjusting_setting)
                     {
-                        // save setting
+                        byte result = save_setting(0, volume);
+                        process_result(result, "volume");
                         menu_item = 0;
                         m = 0;
-                        xQueueSend(lcdQueue, (void *)true, 0);
                     }
                     break;
                 default:
@@ -274,10 +430,20 @@ void button_task(void *pvParameters)
                     adjusting_setting = !adjusting_setting;
                     if (!adjusting_setting)
                     {
-                        // save setting
+                        if (menu == HMIN_MENU)
+                        {
+                            save_setting(5, hmin);
+                        }
+                        else if (menu == HMAX_MENU)
+                        {
+                            save_setting(6, hmax);
+                        }
+                        else if (menu == HTARGET_MENU)
+                        {
+                            save_setting(7, htarget);
+                        }
                         menu_item = 0;
                         m = 0;
-                        xQueueSend(lcdQueue, (void *)true, 0);
                     }
                     break;
                 default:
@@ -326,10 +492,29 @@ void button_task(void *pvParameters)
                     adjusting_setting = !adjusting_setting;
                     if (!adjusting_setting)
                     {
-                        // save setting
+                        uint8_t tmin_to_save = tmin;
+                        uint8_t tmax_to_save = tmax;
+                        uint8_t ttarget_to_save = ttarget;
+                        if (unit == 1)
+                        {
+                            tmin_to_save = round((tmin - 32) * 5.0 / 9.0);
+                            tmax_to_save = round((tmax - 32) * 5.0 / 9.0);
+                            ttarget_to_save = round((ttarget - 32) * 5.0 / 9.0);
+                        }
+                        if (menu == TMIN_MENU)
+                        {
+                            save_setting(1, tmin_to_save);
+                        }
+                        else if (menu == TMAX_MENU)
+                        {
+                            save_setting(2, tmax_to_save);
+                        }
+                        else if (menu == TTARGET_MENU)
+                        {
+                            save_setting(3, ttarget_to_save);
+                        }
                         menu_item = 0;
                         m = 0;
-                        xQueueSend(lcdQueue, (void *)true, 0);
                     }
                     break;
                 default:
@@ -346,7 +531,7 @@ void button_task(void *pvParameters)
                     unit = (unit + 1) % 2;
                     menu_item = 0;
                     m = 0;
-                    // save setting
+                    save_setting(4, unit);
                     break;
                 default:
                     menu = TEMPERATURE_MENU;
@@ -453,8 +638,14 @@ void lcd_task(void *pvParameters)
 
                     double temp = dht_readings.at(0).celsius;
                     double hum = dht_readings.at(0).humidity;
+                    char unit_str[2] = "C";
+                    if (unit == 1)
+                    {
+                        temp = temp * 9.0 / 5.0 + 32.0;
+                        unit_str[0] = 'F';
+                    }
                     char temp_str[17];
-                    snprintf(temp_str, 17, "%6.1fC  %-5.1f%% ", temp, hum);
+                    snprintf(temp_str, 17, "%6.1f%s %-5.1f%% ", temp, unit_str, hum);
                     lcd_set_cursor(0, 0);
                     lcd_string("  TEMP     HUM  ");
                     lcd_set_cursor(1, 0);
@@ -520,7 +711,6 @@ void obt_task(void *pvParameters)
             reg_read(i2c_default, LM75_BASE_ADDRESS, LM75_REGISTER_TEMP, buf, 2);
             t = buf[0] << 8 | buf[1];
             board_temp = (float)t / 256.0f;
-            // board_temp = temp;
             xSemaphoreGive(i2c_default_mutex);
         }
         else
@@ -850,15 +1040,10 @@ void setup()
     Serial.println("Dry Box Controller Starting...");
 
     i2c_init(i2c_default, 100 * 1000);
-    i2c_init(i2c1, 100 * 1000);
     gpio_set_function(I2C_0_SDA_PIN, GPIO_FUNC_I2C);
     gpio_set_function(I2C_0_SCL_PIN, GPIO_FUNC_I2C);
     gpio_pull_up(I2C_0_SDA_PIN);
     gpio_pull_up(I2C_0_SCL_PIN);
-    gpio_set_function(I2C_1_SDA_PIN, GPIO_FUNC_I2C);
-    gpio_set_function(I2C_1_SCL_PIN, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_1_SDA_PIN);
-    gpio_pull_up(I2C_1_SCL_PIN);
 
     pinMode(EEPROM_WP_PIN, GPIO_OUT);
 
@@ -869,22 +1054,24 @@ void setup()
     led3Queue = xQueueCreate(4, sizeof(bool));
 
     i2c_default_mutex = xSemaphoreCreateMutex();
+    i2c1_mutex = xSemaphoreCreateMutex();
 
     dht_readings[0] = th1;
     dht_readings[1] = th2;
 
-    xTaskCreate(usb_task, "USB Task", 256, NULL, 1, &usbTaskHandle);
+    xTaskCreate(usb_task, "USB Task", 1024, NULL, 1, &usbTaskHandle);
 
 #ifdef I2C_SCAN
-    xTaskCreate(i2c_scan_task, "I2C Scan Task", 256, NULL, 1, &i2cScanTaskHandle);
+    xTaskCreate(i2c_scan_task, "I2C Scan Task", 1024, NULL, 1, &i2cScanTaskHandle);
 #else
     xTaskCreate(lcd_task, "LCD Task", 1024, NULL, 1, &lcdTaskHandle);
     xTaskCreate(obt_task, "OBT Task", 1024, (void *)&i2c0_inst, 1, &obtTaskHandle);
     xTaskCreate(dht_task, "DHT Task 1", 1024, (void *)&th1, 1, &dht1TaskHandle);
     xTaskCreate(dht_task, "DHT Task 2", 1024, (void *)&th2, 1, &dht2TaskHandle);
-    xTaskCreate(led_task, "LED Task", 256, NULL, 1, &ledTaskHandle);
-    xTaskCreate(encoder_task, "ENC Task", 256, NULL, 1, &encoderTaskHandle);
-    xTaskCreate(button_task, "BTN Task", 256, NULL, 1, &btnTaskHandle);
+    xTaskCreate(led_task, "LED Task", 1024, NULL, 1, &ledTaskHandle);
+    xTaskCreate(encoder_task, "ENC Task", 1024, NULL, 1, &encoderTaskHandle);
+    xTaskCreate(button_task, "BTN Task", 1024, NULL, 1, &btnTaskHandle);
+
 #endif
 }
 
