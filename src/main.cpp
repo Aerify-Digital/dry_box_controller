@@ -18,6 +18,8 @@ static TaskHandle_t i2cScanTaskHandle = NULL;
 
 static SemaphoreHandle_t i2c_default_mutex;
 
+bool adjusting_setting = false;
+
 int enc_a = 1;
 int enc_a_last = 1;
 int enc_b = 1;
@@ -32,6 +34,57 @@ std::vector<DHT_Data_t> dht_readings = std::vector<DHT_Data_t>(2);
 
 volatile uint32_t last_button_press = 0;
 volatile bool button_event = false;
+
+uint8_t volume = 100; // Speaker volume 0-100
+uint8_t tmin = 20;    // Minimum temperature in Celsius
+uint8_t tmax = 40;    // Maximum temperature in Celsius
+uint8_t ttarget = 21; // Target temperature in Celsius
+uint8_t unit = 0;     // 0 = Celsius, 1 = Fahrenheit
+uint8_t hmin = 0;     // Minimum humidity in %
+uint8_t hmax = 15;    // Maximum humidity in %
+uint8_t htarget = 7;  // Target humidity in %
+
+std::string replace_placeholders(const char *src)
+{
+    std::string s(src);
+    struct Placeholder
+    {
+        const char *key;
+        std::string value;
+    };
+
+    int tmin_disp = tmin;
+    int tmax_disp = tmax;
+    int ttarget_disp = ttarget;
+    std::string unit_str = "C";
+    if (unit == 1)
+    { // Fahrenheit
+        tmin_disp = static_cast<int>(round(tmin * 9.0 / 5.0 + 32));
+        tmax_disp = static_cast<int>(round(tmax * 9.0 / 5.0 + 32));
+        ttarget_disp = static_cast<int>(round(ttarget * 9.0 / 5.0 + 32));
+        unit_str = "F";
+    }
+    std::vector<Placeholder> replacements = {
+        {"%x7f%", std::string(1, '\x7f')},
+        {"%volume%", std::to_string(volume)},
+        {"%tmin%", std::to_string(tmin_disp)},
+        {"%tmax%", std::to_string(tmax_disp)},
+        {"%ttarget%", std::to_string(ttarget_disp)},
+        {"%unit%", unit_str},
+        {"%hmin%", std::to_string(hmin)},
+        {"%hmax%", std::to_string(hmax)},
+        {"%htarget%", std::to_string(htarget)}};
+
+    for (const auto &repl : replacements)
+    {
+        size_t pos;
+        while ((pos = s.find(repl.key)) != std::string::npos)
+        {
+            s.replace(pos, strlen(repl.key), repl.value);
+        }
+    }
+    return s;
+}
 
 void gpio_callback(uint gpio, uint32_t events)
 {
@@ -81,7 +134,6 @@ void button_task(void *pvParameters)
                     m = 0;
                     break;
                 default:
-                    // info screen
                     menu = -1;
                     menu_item = 0;
                     m = 0;
@@ -96,7 +148,6 @@ void button_task(void *pvParameters)
                     menu = DHT_MENU;
                     menu_item = 0;
                     m = 0;
-                    break;
                     break;
                 case THERMAL_BTN:
                     menu = THERMAL_MENU;
@@ -124,6 +175,12 @@ void button_task(void *pvParameters)
             case DHT_MENU:
                 switch (menu_item)
                 {
+                case 1:
+                    // DHT Sensor 1 settings
+                    break;
+                case 2:
+                    // DHT Sensor 2 settings
+                    break;
                 default:
                     menu = HARDWARE_MENU;
                     menu_item = 0;
@@ -134,6 +191,12 @@ void button_task(void *pvParameters)
             case THERMAL_MENU:
                 switch (menu_item)
                 {
+                case 1:
+                    // Thermal 1 settings
+                    break;
+                case 2:
+                    // Thermal 2 settings
+                    break;
                 default:
                     menu = HARDWARE_MENU;
                     menu_item = 0;
@@ -144,6 +207,12 @@ void button_task(void *pvParameters)
             case OUTPUT_MENU:
                 switch (menu_item)
                 {
+                case 1:
+                    // Output 1 settings
+                    break;
+                case 2:
+                    // Output 2 settings
+                    break;
                 default:
                     menu = HARDWARE_MENU;
                     menu_item = 0;
@@ -154,6 +223,16 @@ void button_task(void *pvParameters)
             case SPEAKER_MENU:
                 switch (menu_item)
                 {
+                case 1:
+                    adjusting_setting = !adjusting_setting;
+                    if (!adjusting_setting)
+                    {
+                        // save setting
+                        menu_item = 0;
+                        m = 0;
+                        xQueueSend(lcdQueue, (void *)true, 0);
+                    }
+                    break;
                 default:
                     menu = HARDWARE_MENU;
                     menu_item = 0;
@@ -186,6 +265,28 @@ void button_task(void *pvParameters)
                     break;
                 }
                 break;
+            case HMIN_MENU:
+            case HMAX_MENU:
+            case HTARGET_MENU:
+                switch (menu_item)
+                {
+                case 1:
+                    adjusting_setting = !adjusting_setting;
+                    if (!adjusting_setting)
+                    {
+                        // save setting
+                        menu_item = 0;
+                        m = 0;
+                        xQueueSend(lcdQueue, (void *)true, 0);
+                    }
+                    break;
+                default:
+                    menu = HUMIDITY_MENU;
+                    menu_item = 0;
+                    m = 0;
+                    break;
+                }
+                break;
             case TEMPERATURE_MENU:
                 switch (menu_item)
                 {
@@ -211,6 +312,44 @@ void button_task(void *pvParameters)
                     break;
                 default:
                     menu = MAIN_MENU;
+                    menu_item = 0;
+                    m = 0;
+                    break;
+                }
+                break;
+            case TMIN_MENU:
+            case TMAX_MENU:
+            case TTARGET_MENU:
+                switch (menu_item)
+                {
+                case 1:
+                    adjusting_setting = !adjusting_setting;
+                    if (!adjusting_setting)
+                    {
+                        // save setting
+                        menu_item = 0;
+                        m = 0;
+                        xQueueSend(lcdQueue, (void *)true, 0);
+                    }
+                    break;
+                default:
+                    menu = TEMPERATURE_MENU;
+                    menu_item = 0;
+                    m = 0;
+                    break;
+                }
+                break;
+            case UNIT_MENU:
+                switch (menu_item)
+                {
+                case 1:
+                    unit = (unit + 1) % 2;
+                    menu_item = 0;
+                    m = 0;
+                    // save setting
+                    break;
+                default:
+                    menu = TEMPERATURE_MENU;
                     menu_item = 0;
                     m = 0;
                     break;
@@ -337,9 +476,11 @@ void lcd_task(void *pvParameters)
                         {
 
                             const char *str = menus[menu][menu_item + line];
-                            uint whitespace = 16 - strlen(str);
-                            char *text = (char *)malloc(strlen(str) + whitespace);
-                            strcpy(text, menus[menu][menu_item + line]);
+                            std::string replaced_str = replace_placeholders(str);
+
+                            uint whitespace = 16 - replaced_str.length();
+                            char *text = (char *)malloc(replaced_str.length() + whitespace);
+                            strcpy(text, replaced_str.c_str());
                             if (menu_item + line == menu_item)
                             {
                                 strcat(text, const_cast<const char *>((std::string(whitespace - 1, ' ') + "<").c_str()));
@@ -460,7 +601,7 @@ void encoder_task(void *pvParameters)
     xQueueSend(usbQueue, (void *)&msg, 10);
     while (1)
     {
-        if (menu > -1)
+        if (menu > -1 && menu < menus.size() && adjusting_setting == false)
         {
             enc_a = gpio_get(ENCODER_A_PIN);
             if (enc_a != enc_a_last)
@@ -496,6 +637,111 @@ void encoder_task(void *pvParameters)
                 }
             }
             enc_a_last = enc_a;
+        }
+        else
+        {
+            // In setting adjustment mode?
+            if (adjusting_setting)
+            {
+                enc_a = gpio_get(ENCODER_A_PIN);
+                if (enc_a != enc_a_last)
+                {
+                    enc_b = gpio_get(ENCODER_B_PIN);
+                    if (!enc_a && enc_b)
+                    {
+                        // Clockwise
+                        switch (menu)
+                        {
+                        case SPEAKER_MENU:
+                            if (volume > 0)
+                                volume -= 1;
+                            else
+                                volume = 0;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case TMIN_MENU:
+                            if (tmin > 0)
+                                tmin -= 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case TMAX_MENU:
+                            if (tmax > 0)
+                                tmax -= 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case TTARGET_MENU:
+                            if (ttarget > 0)
+                                ttarget -= 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case HMIN_MENU:
+                            if (hmin > 0)
+                                hmin -= 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case HMAX_MENU:
+                            if (hmax > 0)
+                                hmax -= 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case HTARGET_MENU:
+                            if (htarget > 0)
+                                htarget -= 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        default:
+                            break;
+                        }
+                    }
+                    else if (!enc_a && !enc_b)
+                    {
+                        // Counter-clockwise
+                        switch (menu)
+                        {
+                        case SPEAKER_MENU:
+                            if (volume < 100)
+                                volume += 1;
+                            else
+                                volume = 100;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case TMIN_MENU:
+                            if (tmin < 100)
+                                tmin += 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case TMAX_MENU:
+                            if (tmax < 100)
+                                tmax += 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case TTARGET_MENU:
+                            if (ttarget < 100)
+                                ttarget += 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case HMIN_MENU:
+                            if (hmin < 100)
+                                hmin += 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case HMAX_MENU:
+                            if (hmax < 100)
+                                hmax += 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        case HTARGET_MENU:
+                            if (htarget < 100)
+                                htarget += 1;
+                            xQueueSend(lcdQueue, (void *)true, 0);
+                            break;
+                        default:
+                            break;
+                        }
+                    }
+                    enc_a_last = enc_a;
+                }
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(1));
     }

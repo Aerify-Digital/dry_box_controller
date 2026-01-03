@@ -44,3 +44,5 @@ bool reserved_addr(uint8_t addr)
 {
     return (addr & 0x78) == 0 || (addr & 0x78) == 0x78;
 }
+
+std::string replace_placeholders(const char *src);

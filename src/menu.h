@@ -5,67 +5,69 @@
 
 std::vector<const char *> main_menu =
     {
-        "\x7fInfo Screen", "Hardware",
+        "%x7f%Info Screen", "Hardware",
         "Humidity", "Temperature"};
 
 std::vector<const char *> hardware_menu =
     {
-        "\x7fSettings", "DHT Sensors",
+        "%x7f%Settings", "DHT Sensors",
         "Thermal Sensors", "Output Settings", "Speaker Volume"};
 
 std::vector<const char *> dht_menu =
     {
-        "\x7fHardware", "DHT 1", "DHT 2"};
+        "%x7f%Hardware", "DHT 1", "DHT 2"};
+
+std::vector<const char *> dht1_menu =
+    {
+        "%x7f%DHT Sensors", "%dht1_info%"};
 
 std::vector<const char *> thermal_menu =
     {
-        "\x7fHardware", "Thermistor 1", "Thermistor 2"};
+        "%x7f%Hardware", "Thermistor 1", "Thermistor 2"};
 
 std::vector<const char *> output_menu =
     {
-        "\x7fHardware", "Output 1", "Output 2"};
+        "%x7f%Hardware", "Output 1", "Output 2"};
 
 std::vector<const char *> speaker_menu =
     {
-        "\x7fHardware", "%u%%"};
+        "%x7f%Hardware", "Volume %volume%%"};
 
 std::vector<const char *> humidity_menu =
     {
-        "\x7fSettings", "Minimum", "Maximum",
+        "%x7f%Settings", "Minimum", "Maximum",
         "Target"};
 
 std::vector<const char *> hmin_menu =
     {
-        "\x7fTemperature", "%u%%"};
+        "%x7f%Humidity", "Min %hmin%%"};
 
 std::vector<const char *> hmax_menu =
     {
-        "\x7fTemperature", "%u%%"};
-
+        "%x7f%Humidity", "Max %hmax%%"};
 std::vector<const char *> htarget_menu =
     {
-        "\x7fTemperature", "%u%%"};
+        "%x7f%Humidity", "Target %htarget%%"};
 
 std::vector<const char *> temperature_menu =
     {
-        "\x7fSettings", "Minimum", "Maximum",
+        "%x7f%Settings", "Minimum", "Maximum",
         "Target", "Unit"};
 
 std::vector<const char *> tmin_menu =
     {
-        "\x7fTemperature", "%f%c"};
+        "%x7f%Temperature", "Min %tmin%%unit%"};
 
 std::vector<const char *> tmax_menu =
     {
-        "\x7fTemperature", "%f%c"};
-
+        "%x7f%Temperature", "Max %tmax%%unit%"};
 std::vector<const char *> ttarget_menu =
     {
-        "\x7fTemperature", "%f%c"};
+        "%x7f%Temperature", "Target %ttarget%%unit%"};
 
 std::vector<const char *> unit_menu =
     {
-        "\x7fTemperature", "UNIT"};
+        "%x7f%Temperature", "%unit%"};
 
 std::vector<std::vector<const char *>> menus = {main_menu, hardware_menu, humidity_menu, temperature_menu, unit_menu, dht_menu, thermal_menu, output_menu, speaker_menu, hmin_menu, hmax_menu, htarget_menu, tmin_menu, tmax_menu, ttarget_menu};
 
