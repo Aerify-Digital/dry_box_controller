@@ -50,11 +50,11 @@
 #endif
 
 #ifndef THERMISTOR_0_PIN
-#define THERMISTOR_0_PIN 26
+#define THERMISTOR_0_PIN 26 // ADC0
 #endif
 
 #ifndef THERMISTOR_1_PIN
-#define THERMISTOR_1_PIN 27
+#define THERMISTOR_1_PIN 27 // ADC1
 #endif
 
 #endif

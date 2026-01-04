@@ -14,6 +14,10 @@ DHT_Data_t th1 = {0, 8, 100.0, 20.0};
 DHT_Data_t th2 = {1, 9, 100.0, 20.0};
 std::vector<DHT_Data_t> dht_readings = std::vector<DHT_Data_t>(2);
 
+Thermistor_Data_t therm1 = {0, 0, THERMISTOR_0_PIN, 20};
+Thermistor_Data_t therm2 = {1, 1, THERMISTOR_1_PIN, 20};
+std::vector<Thermistor_Data_t> thermistor_readings = std::vector<Thermistor_Data_t>(2);
+
 volatile uint32_t last_button_press = 0;
 volatile bool button_event = false;
 
@@ -262,12 +266,12 @@ void button_task(void *pvParameters)
     eeprom.begin(eeprom.twiClock100kHz, &myWire);
     digitalWrite(EEPROM_WP_PIN, LOW);
     load_settings();
+
     while (1)
     {
         if (button_event)
         {
             button_event = false;
-
             switch (menu)
             {
             case MAIN_MENU:
@@ -578,6 +582,47 @@ void led_task(void *pvParameters)
     }
 }
 
+void thermistor_task(void *pvParameters)
+{
+    Thermistor_Data_t *thermistor = (Thermistor_Data_t *)pvParameters;
+    Message_t msg;
+
+    msg.level = LOG_DEBUG;
+    snprintf(msg.body, 128, "Thermistor %d Task Started on Pin %d\n", thermistor->id + 1, thermistor->pin);
+    xQueueSend(usbQueue, (void *)&msg, 10);
+    adc_gpio_init(thermistor->pin);
+    while (1)
+    {
+        if (xSemaphoreTake(adc_mutex, 1000) == pdTRUE)
+        {
+            // Read ADC value
+            uint16_t adc_value = thermistor_adc_read(thermistor->adc_input);
+            xSemaphoreGive(adc_mutex);
+            double voltage = (adc_value / 4095.0) * 3.3;
+            double R_FIXED = 100000.0; // 100k fixed resistor
+            double resistance = (3.3 - voltage) * R_FIXED / voltage;
+            double steinhart;
+            steinhart = resistance / 100000.0;  // (R/Ro), Ro = 100k
+            steinhart = log(steinhart);         // ln(R/Ro)
+            steinhart /= 3950.0;                // 1/B * ln(R/Ro)
+            steinhart += 1.0 / (25.0 + 273.15); // + (1/To), To = 25°C
+            steinhart = 1.0 / steinhart;        // Invert
+            steinhart -= 273.15;                // Convert to Celsius
+            double celsius = steinhart;
+            snprintf(msg.body, 128, "Thermistor %d Task: ADC Value: %d Resistance: %.2f Ohms Temperature: %.2f C\n", thermistor->id + 1, adc_value, resistance, celsius);
+            msg.level = LOG_DEBUG;
+            xQueueSend(usbQueue, (void *)&msg, 10);
+        }
+        else
+        {
+            msg.level = LOG_ERROR;
+            snprintf(msg.body, 128, "Thermistor %d Task: Failed to obtain ADC mutex\n", thermistor->id + 1);
+            xQueueSend(usbQueue, (void *)&msg, 10);
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
 void usb_task(void *pvParameters)
 {
 
@@ -704,6 +749,7 @@ void buzzer_task(void *pvParameters)
     gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
     uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
     BuzzerCommand_t cmd;
+    bool alarm_active = false;
     while (1)
     {
         if (xQueueReceive(buzzerQueue, &cmd, portMAX_DELAY) == pdPASS)
@@ -711,23 +757,54 @@ void buzzer_task(void *pvParameters)
             switch (cmd.type)
             {
             case BUZZER_ON:
-                pwm_set_gpio_level(BUZZER_PIN, (uint16_t)(((65535 / 2) - 1) * volume / 100));
+                pwm_set_gpio_level(BUZZER_PIN, (((65535 / 2) - 1) * volume / 100));
                 pwm_set_enabled(slice_num, true);
                 break;
             case BUZZER_OFF:
                 pwm_set_gpio_level(BUZZER_PIN, 0);
                 pwm_set_enabled(slice_num, false);
+                alarm_active = false;
                 break;
             case BUZZER_CHIRP:
-                pwm_set_gpio_level(BUZZER_PIN, (uint16_t)(((65535 / 2) - 1) * volume / 100));
+                pwm_set_gpio_level(BUZZER_PIN, (((65535 / 2) - 1) * volume / 100));
                 pwm_set_enabled(slice_num, true);
                 vTaskDelay(pdMS_TO_TICKS(cmd.duration_ms));
                 pwm_set_gpio_level(BUZZER_PIN, 0);
                 pwm_set_enabled(slice_num, false);
                 break;
             case BUZZER_ALARM:
-                pwm_set_gpio_level(BUZZER_PIN, (uint16_t)(((65535 / 2) - 1)));
-                pwm_set_enabled(slice_num, true);
+                alarm_active = true;
+                while (alarm_active)
+                {
+                    uint32_t on_time = 0;
+                    pwm_set_gpio_level(BUZZER_PIN, ((65535 / 2) - 1));
+                    pwm_set_enabled(slice_num, true);
+                    while (on_time < 1000 && alarm_active)
+                    {
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                        on_time += 50;
+                        BuzzerCommand_t cancel_cmd;
+                        if (xQueueReceive(buzzerQueue, &cancel_cmd, 0) == pdPASS && cancel_cmd.type == BUZZER_OFF)
+                        {
+                            alarm_active = false;
+                        }
+                    }
+                    uint32_t off_time = 0;
+                    pwm_set_gpio_level(BUZZER_PIN, 0);
+                    pwm_set_enabled(slice_num, false);
+                    while (off_time < 1000 && alarm_active)
+                    {
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                        off_time += 50;
+                        BuzzerCommand_t cancel_cmd;
+                        if (xQueueReceive(buzzerQueue, &cancel_cmd, 0) == pdPASS && cancel_cmd.type == BUZZER_OFF)
+                        {
+                            alarm_active = false;
+                        }
+                    }
+                }
+                pwm_set_gpio_level(BUZZER_PIN, 0);
+                pwm_set_enabled(slice_num, false);
                 break;
             default:
                 msg.level = LOG_ERROR;
@@ -1124,6 +1201,8 @@ void setup()
 
     pinMode(EEPROM_WP_PIN, GPIO_OUT);
 
+    adc_init();
+
     usbQueue = xQueueCreate(MSG_QUEUE_LEN, sizeof(Message_t));
     lcdQueue = xQueueCreate(4, sizeof(bool));
     led1Queue = xQueueCreate(4, sizeof(bool));
@@ -1132,10 +1211,13 @@ void setup()
     buzzerQueue = xQueueCreate(4, sizeof(BuzzerCommand_t));
 
     i2c_default_mutex = xSemaphoreCreateMutex();
-    i2c1_mutex = xSemaphoreCreateMutex();
+    adc_mutex = xSemaphoreCreateMutex();
 
     dht_readings[0] = th1;
     dht_readings[1] = th2;
+
+    thermistor_readings[0] = therm1;
+    thermistor_readings[1] = therm2;
 
     xTaskCreate(usb_task, "USB Task", 1024, NULL, 1, &usbTaskHandle);
     xTaskCreate(led_task, "LED Task", 1024, NULL, 1, &ledTaskHandle);
@@ -1149,6 +1231,8 @@ void setup()
     xTaskCreate(obt_task, "OBT Task", 1024, (void *)&i2c0_inst, 1, &obtTaskHandle);
     xTaskCreate(dht_task, "DHT Task 1", 1024, (void *)&th1, 1, &dht1TaskHandle);
     xTaskCreate(dht_task, "DHT Task 2", 1024, (void *)&th2, 1, &dht2TaskHandle);
+    xTaskCreate(thermistor_task, "Thermistor Task 1", 1024, (void *)&therm1, 1, &thermistor1TaskHandle);
+    xTaskCreate(thermistor_task, "Thermistor Task 2", 1024, (void *)&therm2, 1, &thermistor2TaskHandle);
 #endif
 }
 
